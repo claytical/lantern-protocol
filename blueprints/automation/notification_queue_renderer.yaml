@@ -1,0 +1,341 @@
+blueprint:
+  name: Notification Queue - RGB Light Renderer
+  description: >-
+    Render active notification queue helpers on a color-capable light. If the light is powered by a switch,
+    the renderer turns the switch on, waits for the bulb, and then overwrites the bulb color. Turning the
+    power switch off can clear all configured queue helpers.
+  domain: automation
+  source_url: https://github.com/placeholder/ha-notification-queue-blueprints/blob/main/blueprints/automation/notification_queue_renderer.yaml
+
+  input:
+    notification_light:
+      name: Notification light
+      selector:
+        entity:
+          domain: light
+
+    power_switch:
+      name: Power switch / clear switch
+      description: The switch that powers the light. This can also be the physical clear gesture.
+      selector:
+        entity:
+          domain: switch
+
+    clear_on_power_off:
+      name: Clear queue when power switch turns off
+      default: true
+      selector:
+        boolean: {}
+
+    bulb_ready_timeout:
+      name: Bulb ready timeout
+      description: How long to wait for a physically powered bulb to become available.
+      default:
+        seconds: 15
+      selector:
+        duration: {}
+
+    extra_boot_delay:
+      name: Extra boot delay
+      description: Extra time after the bulb is available before the first color command.
+      default:
+        seconds: 1
+      selector:
+        duration: {}
+
+    color_hold_duration:
+      name: Color hold duration
+      description: How long each active notification color is displayed.
+      default:
+        seconds: 2
+      selector:
+        duration: {}
+
+    doorbell_helper:
+      name: Doorbell helper
+      selector:
+        entity:
+          domain: input_boolean
+
+    garage_opened_helper:
+      name: Garage opened helper
+      selector:
+        entity:
+          domain: input_boolean
+
+    garage_left_open_helper:
+      name: Garage left open helper
+      selector:
+        entity:
+          domain: input_boolean
+
+    phone_call_helper:
+      name: Phone call helper
+      selector:
+        entity:
+          domain: input_boolean
+
+    phone_message_helper:
+      name: Phone message helper
+      selector:
+        entity:
+          domain: input_boolean
+
+    doorbell_color:
+      name: Doorbell RGB color
+      default: [255, 255, 255]
+      selector:
+        color_rgb: {}
+
+    garage_opened_color:
+      name: Garage opened RGB color
+      default: [0, 255, 80]
+      selector:
+        color_rgb: {}
+
+    garage_left_open_color:
+      name: Garage left open RGB color
+      default: [255, 80, 0]
+      selector:
+        color_rgb: {}
+
+    phone_call_color:
+      name: Phone call RGB color
+      default: [255, 0, 0]
+      selector:
+        color_rgb: {}
+
+    phone_message_color:
+      name: Phone message RGB color
+      default: [0, 80, 255]
+      selector:
+        color_rgb: {}
+
+    doorbell_brightness:
+      name: Doorbell brightness percent
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+
+    garage_opened_brightness:
+      name: Garage opened brightness percent
+      default: 90
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+
+    garage_left_open_brightness:
+      name: Garage left open brightness percent
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+
+    phone_call_brightness:
+      name: Phone call brightness percent
+      default: 100
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+
+    phone_message_brightness:
+      name: Phone message brightness percent
+      default: 85
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+
+mode: restart
+
+variables:
+  notification_light: !input notification_light
+  power_switch: !input power_switch
+  clear_on_power_off: !input clear_on_power_off
+  bulb_ready_timeout: !input bulb_ready_timeout
+  extra_boot_delay: !input extra_boot_delay
+  color_hold_duration: !input color_hold_duration
+
+  doorbell_helper: !input doorbell_helper
+  garage_opened_helper: !input garage_opened_helper
+  garage_left_open_helper: !input garage_left_open_helper
+  phone_call_helper: !input phone_call_helper
+  phone_message_helper: !input phone_message_helper
+
+  doorbell_color: !input doorbell_color
+  garage_opened_color: !input garage_opened_color
+  garage_left_open_color: !input garage_left_open_color
+  phone_call_color: !input phone_call_color
+  phone_message_color: !input phone_message_color
+
+  doorbell_brightness: !input doorbell_brightness
+  garage_opened_brightness: !input garage_opened_brightness
+  garage_left_open_brightness: !input garage_left_open_brightness
+  phone_call_brightness: !input phone_call_brightness
+  phone_message_brightness: !input phone_message_brightness
+
+trigger:
+  - platform: state
+    entity_id: !input doorbell_helper
+  - platform: state
+    entity_id: !input garage_opened_helper
+  - platform: state
+    entity_id: !input garage_left_open_helper
+  - platform: state
+    entity_id: !input phone_call_helper
+  - platform: state
+    entity_id: !input phone_message_helper
+  - platform: state
+    entity_id: !input power_switch
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ trigger.entity_id == power_switch and trigger.to_state.state == 'off' and clear_on_power_off }}
+        sequence:
+          - service: input_boolean.turn_off
+            target:
+              entity_id:
+                - !input doorbell_helper
+                - !input garage_opened_helper
+                - !input garage_left_open_helper
+                - !input phone_call_helper
+                - !input phone_message_helper
+          - stop: Queue cleared by power switch.
+
+  - condition: template
+    value_template: >-
+      {{
+        is_state(doorbell_helper, 'on')
+        or is_state(garage_opened_helper, 'on')
+        or is_state(garage_left_open_helper, 'on')
+        or is_state(phone_call_helper, 'on')
+        or is_state(phone_message_helper, 'on')
+      }}
+
+  - if:
+      - condition: template
+        value_template: "{{ is_state(power_switch, 'off') }}"
+    then:
+      - service: switch.turn_on
+        target:
+          entity_id: !input power_switch
+
+  - wait_template: >-
+      {{ states(notification_light) not in ['unavailable', 'unknown'] }}
+    timeout: !input bulb_ready_timeout
+    continue_on_timeout: true
+
+  - delay: !input extra_boot_delay
+
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ is_state(power_switch, 'on') }}"
+        - condition: template
+          value_template: >-
+            {{
+              is_state(doorbell_helper, 'on')
+              or is_state(garage_opened_helper, 'on')
+              or is_state(garage_left_open_helper, 'on')
+              or is_state(phone_call_helper, 'on')
+              or is_state(phone_message_helper, 'on')
+            }}
+      sequence:
+        - variables:
+            active_notifications: >-
+              {% set ns = namespace(items=[]) %}
+              {% if is_state(doorbell_helper, 'on') %}
+                {% set ns.items = ns.items + ['doorbell'] %}
+              {% endif %}
+              {% if is_state(garage_opened_helper, 'on') %}
+                {% set ns.items = ns.items + ['garage_opened'] %}
+              {% endif %}
+              {% if is_state(garage_left_open_helper, 'on') %}
+                {% set ns.items = ns.items + ['garage_left_open'] %}
+              {% endif %}
+              {% if is_state(phone_call_helper, 'on') %}
+                {% set ns.items = ns.items + ['phone_call'] %}
+              {% endif %}
+              {% if is_state(phone_message_helper, 'on') %}
+                {% set ns.items = ns.items + ['phone_message'] %}
+              {% endif %}
+              {{ ns.items }}
+
+        - repeat:
+            for_each: "{{ active_notifications }}"
+            sequence:
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ repeat.item == 'doorbell' }}"
+                    sequence:
+                      - service: light.turn_on
+                        target:
+                          entity_id: !input notification_light
+                        data:
+                          brightness_pct: "{{ doorbell_brightness | int }}"
+                          rgb_color: "{{ doorbell_color }}"
+
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ repeat.item == 'garage_opened' }}"
+                    sequence:
+                      - service: light.turn_on
+                        target:
+                          entity_id: !input notification_light
+                        data:
+                          brightness_pct: "{{ garage_opened_brightness | int }}"
+                          rgb_color: "{{ garage_opened_color }}"
+
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ repeat.item == 'garage_left_open' }}"
+                    sequence:
+                      - service: light.turn_on
+                        target:
+                          entity_id: !input notification_light
+                        data:
+                          brightness_pct: "{{ garage_left_open_brightness | int }}"
+                          rgb_color: "{{ garage_left_open_color }}"
+
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ repeat.item == 'phone_call' }}"
+                    sequence:
+                      - service: light.turn_on
+                        target:
+                          entity_id: !input notification_light
+                        data:
+                          brightness_pct: "{{ phone_call_brightness | int }}"
+                          rgb_color: "{{ phone_call_color }}"
+
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ repeat.item == 'phone_message' }}"
+                    sequence:
+                      - service: light.turn_on
+                        target:
+                          entity_id: !input notification_light
+                        data:
+                          brightness_pct: "{{ phone_message_brightness | int }}"
+                          rgb_color: "{{ phone_message_color }}"
+
+              - delay: !input color_hold_duration

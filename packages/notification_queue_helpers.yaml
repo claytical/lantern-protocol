@@ -1,0 +1,30 @@
+###############################################################################
+# Notification Queue Helpers
+#
+# Copy this file to /config/packages/notification_queue_helpers.yaml.
+# Requires packages to be enabled in configuration.yaml:
+#
+# homeassistant:
+#   packages: !include_dir_named packages
+###############################################################################
+
+input_boolean:
+  notification_queue_doorbell:
+    name: Notification Queue Doorbell
+    icon: mdi:doorbell-video
+
+  notification_queue_garage_opened:
+    name: Notification Queue Garage Opened
+    icon: mdi:garage-open-variant
+
+  notification_queue_garage_left_open:
+    name: Notification Queue Garage Left Open
+    icon: mdi:garage-alert-variant
+
+  notification_queue_phone_call:
+    name: Notification Queue Phone Call
+    icon: mdi:phone-incoming
+
+  notification_queue_phone_message:
+    name: Notification Queue Phone Message
+    icon: mdi:message-text

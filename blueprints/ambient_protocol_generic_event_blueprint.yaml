@@ -1,0 +1,295 @@
+blueprint:
+  name: Ambient Protocol - Generic Event to Light
+  description: >
+    UI-first ambient notification protocol. Map one Home Assistant entity state change
+    to a standardized light cue with color profile, urgency, animation, duration,
+    and optional restore.
+  domain: automation
+  input:
+    watched_entity:
+      name: What should trigger this cue?
+      description: Pick the sensor, cover, button, binary sensor, or other entity to watch.
+      selector:
+        entity: {}
+
+    trigger_state:
+      name: What state should trigger it?
+      description: Examples: on, open, ringing, detected, home. Must match the entity state exactly.
+      default: "on"
+      selector:
+        text: {}
+
+    hold_for:
+      name: Wait before triggering
+      description: Optional delay before the cue fires. Use 0 seconds for immediate cues.
+      default:
+        seconds: 0
+      selector:
+        duration: {}
+
+    target_light:
+      name: Which light should show the cue?
+      selector:
+        entity:
+          domain: light
+
+    event_label:
+      name: What happened?
+      description: Friendly name for this event, such as Front door opened, Garage left open, or Family message.
+      default: Ambient event
+      selector:
+        text: {}
+
+    color_profile:
+      name: What kind of cue is this?
+      description: The protocol color category.
+      default: arrival
+      selector:
+        select:
+          options:
+            - label: Arrival / presence - blue
+              value: arrival
+            - label: Family / trusted person - green
+              value: family
+            - label: Private message / Signal - teal
+              value: signal
+            - label: Doorbell / visitor - violet
+              value: doorbell
+            - label: Warning - amber
+              value: warning
+            - label: Critical / unresolved - red
+              value: critical
+            - label: Neutral / low priority - soft blue-white
+              value: neutral
+
+    urgency:
+      name: How urgent is it?
+      description: Controls brightness and perceived intensity.
+      default: context
+      selector:
+        select:
+          options:
+            - label: Context - quiet ambient cue
+              value: context
+            - label: Attention - noticeable but calm
+              value: attention
+            - label: Urgent - stronger cue
+              value: urgent
+            - label: Critical - maximum cue
+              value: critical
+
+    animation:
+      name: How should the light move?
+      default: soft_pulse
+      selector:
+        select:
+          options:
+            - label: Soft pulse
+              value: soft_pulse
+            - label: Breathe
+              value: breathe
+            - label: Flash
+              value: flash
+            - label: Steady
+              value: steady
+
+    cue_duration:
+      name: How long should it last?
+      description: Used for temporary cues. Steady critical cues can be paired with a separate clear automation later.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 300
+          unit_of_measurement: seconds
+          mode: slider
+
+    restore_previous:
+      name: Restore previous light state afterward?
+      description: Turn this off for unresolved/sticky alerts like Garage left open.
+      default: true
+      selector:
+        boolean: {}
+
+    respect_quiet_hours:
+      name: Use quiet hours?
+      description: If enabled, the cue will not run during the quiet-hours window below.
+      default: false
+      selector:
+        boolean: {}
+
+    quiet_start:
+      name: Quiet hours start
+      default: "23:00:00"
+      selector:
+        time: {}
+
+    quiet_end:
+      name: Quiet hours end
+      default: "07:00:00"
+      selector:
+        time: {}
+
+mode: restart
+
+trigger:
+  - platform: state
+    entity_id: !input watched_entity
+    to: !input trigger_state
+    for: !input hold_for
+
+variables:
+  target_light: !input target_light
+  event_label: !input event_label
+  color_profile: !input color_profile
+  urgency: !input urgency
+  animation: !input animation
+  cue_duration: !input cue_duration
+  restore_previous: !input restore_previous
+  respect_quiet_hours: !input respect_quiet_hours
+  quiet_start: !input quiet_start
+  quiet_end: !input quiet_end
+
+  color_map:
+    arrival: [0, 100, 255]
+    family: [0, 255, 80]
+    signal: [0, 180, 160]
+    doorbell: [180, 80, 255]
+    warning: [255, 180, 0]
+    critical: [255, 0, 0]
+    neutral: [160, 180, 255]
+
+  brightness_map:
+    context: 45
+    attention: 70
+    urgent: 90
+    critical: 100
+
+  cue_rgb: "{{ color_map[color_profile] if color_profile in color_map else color_map.neutral }}"
+  cue_brightness: "{{ brightness_map[urgency] if urgency in brightness_map else 60 }}"
+
+condition:
+  - condition: template
+    value_template: >
+      {% if not respect_quiet_hours %}
+        true
+      {% else %}
+        {% set n = now().strftime('%H:%M:%S') %}
+        {% if quiet_start < quiet_end %}
+          {{ not (quiet_start <= n < quiet_end) }}
+        {% else %}
+          {{ not (n >= quiet_start or n < quiet_end) }}
+        {% endif %}
+      {% endif %}
+
+action:
+  - service: scene.create
+    data:
+      scene_id: ambient_protocol_before_cue
+      snapshot_entities:
+        - "{{ target_light }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ animation == 'soft_pulse' }}"
+        sequence:
+          - repeat:
+              count: 2
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ target_light }}"
+                  data:
+                    rgb_color: "{{ cue_rgb }}"
+                    brightness_pct: "{{ cue_brightness }}"
+                    transition: 1
+                - delay: "00:00:01"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ target_light }}"
+                  data:
+                    rgb_color: "{{ cue_rgb }}"
+                    brightness_pct: 20
+                    transition: 1
+                - delay: "00:00:01"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ animation == 'breathe' }}"
+        sequence:
+          - repeat:
+              count: 3
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ target_light }}"
+                  data:
+                    rgb_color: "{{ cue_rgb }}"
+                    brightness_pct: "{{ cue_brightness }}"
+                    transition: 2
+                - delay: "00:00:02"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ target_light }}"
+                  data:
+                    rgb_color: "{{ cue_rgb }}"
+                    brightness_pct: 15
+                    transition: 2
+                - delay: "00:00:02"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ animation == 'flash' }}"
+        sequence:
+          - repeat:
+              count: 4
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ target_light }}"
+                  data:
+                    rgb_color: "{{ cue_rgb }}"
+                    brightness_pct: "{{ cue_brightness }}"
+                    transition: 0
+                - delay:
+                    milliseconds: 500
+                - service: light.turn_off
+                  target:
+                    entity_id: "{{ target_light }}"
+                - delay:
+                    milliseconds: 500
+
+      - conditions:
+          - condition: template
+            value_template: "{{ animation == 'steady' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: "{{ target_light }}"
+            data:
+              rgb_color: "{{ cue_rgb }}"
+              brightness_pct: "{{ cue_brightness }}"
+              transition: 1
+
+    default:
+      - service: light.turn_on
+        target:
+          entity_id: "{{ target_light }}"
+        data:
+          rgb_color: "{{ cue_rgb }}"
+          brightness_pct: "{{ cue_brightness }}"
+          transition: 1
+
+  - delay:
+      seconds: "{{ cue_duration | int }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ restore_previous }}"
+    then:
+      - service: scene.turn_on
+        target:
+          entity_id: scene.ambient_protocol_before_cue
+        data:
+          transition: 1
